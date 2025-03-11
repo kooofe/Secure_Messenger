@@ -16,7 +16,7 @@ from Cryptodome.Random import get_random_bytes
 
 app = Flask(__name__)
 # Note: For production, do not hardcode secrets. Use environment variables or secure config.
-app.config['SECRET_KEY'] = 'your_secret_key'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_secret_key_for_dev')
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 CORS(app, supports_credentials=True)
@@ -81,7 +81,7 @@ else:
     print("Encryption key loaded/generated successfully:", aes_key)
 
 def generate_rsa_keypair():
-    key = RSA.generate(2048)
+    key = RSA.generate(3072)
     private_key = key.export_key()
     public_key = key.publickey().export_key()
     return private_key, public_key
@@ -482,4 +482,7 @@ def add_user(username, password):
     conn.close()
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    import os
+    # Use an environment variable to set debug mode (default is False)
+    debug_flag = os.environ.get('DEBUG', 'False') == 'True'
+    socketio.run(app, debug=debug_flag)
