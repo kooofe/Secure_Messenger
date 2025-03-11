@@ -15,7 +15,7 @@ from Cryptodome.PublicKey import RSA
 from Cryptodome.Random import get_random_bytes
 
 app = Flask(__name__)
-# Note: For production, do not hardcode secrets. Use environment variables or secure config.
+# Load the secret key from environment (with a fallback for development)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_secret_key_for_dev')
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
@@ -70,7 +70,7 @@ def save_encryption_aes_key(key):
             key_file.write(key)
         print("Encryption AES key saved to file:", AES_KEY_FILE_PATH)
     except Exception as e:
-        print("Error saving encryption key:", e)
+        print("Error saving encryption AES key:", e)
 
 aes_key = generate_or_load_encryption_aes_key()
 encryption_key = generate_or_load_encryption_key()
@@ -80,6 +80,7 @@ if aes_key is None:
 else:
     print("Encryption key loaded/generated successfully:", aes_key)
 
+# Generate RSA key pair with a stronger key size (3072 bits)
 def generate_rsa_keypair():
     key = RSA.generate(3072)
     private_key = key.export_key()
@@ -98,6 +99,15 @@ def decrypt_with_rsa(private_key, ciphertext):
     cipher_rsa = PKCS1_OAEP.new(rsa_key)
     return cipher_rsa.decrypt(ciphertext)
 
+def pad(s):
+    padding_length = AES.block_size - len(s) % AES.block_size
+    padding = bytes([padding_length]) * padding_length
+    return s + padding
+
+def unpad(s):
+    padding_length = s[-1]
+    return s[:-padding_length]
+
 def encrypt_with_aes(key, plaintext):
     cipher_aes = AES.new(key, AES.MODE_CBC)
     ciphertext = cipher_aes.iv + cipher_aes.encrypt(pad(plaintext))
@@ -109,20 +119,12 @@ def decrypt_with_aes(key, ciphertext):
     plaintext = unpad(cipher_aes.decrypt(ciphertext[AES.block_size:]))
     return plaintext
 
+# Demonstration of encrypting and decrypting the AES key with RSA
 encrypted_aes_key = encrypt_with_rsa(public_key, aes_key)
-print(encrypted_aes_key)
+print("Encrypted AES Key:", encrypted_aes_key)
 decrypted_aes_key = decrypt_with_rsa(private_key, encrypted_aes_key)
-print(decrypted_aes_key)
-print(aes_key)
-
-def pad(s):
-    padding_length = AES.block_size - len(s) % AES.block_size
-    padding = bytes([padding_length]) * padding_length
-    return s + padding
-
-def unpad(s):
-    padding_length = s[-1]
-    return s[:-padding_length]
+print("Decrypted AES Key:", decrypted_aes_key)
+print("Original AES Key:", aes_key)
 
 def get_db_connection():
     conn = sqlite3.connect('users.db')
@@ -132,7 +134,6 @@ def get_db_connection():
 def create_table():
     conn = get_db_connection()
     c = conn.cursor()
-    # Create user and chats tables using parameterized queries where needed.
     c.execute('''CREATE TABLE IF NOT EXISTS user (
                     id INTEGER PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
@@ -172,7 +173,7 @@ def create_table():
 
 create_table()
 
-# All SQL queries below use parameterized queries.
+# All SQL queries now use parameterized statements.
 
 def check_login_attempts(username):
     conn = get_db_connection()
@@ -213,7 +214,6 @@ def get_messages():
     chat_id = request.args.get('chat_id')
     conn = get_db_connection()
     c = conn.cursor()
-    # Use parameterized query to safely pass chat_id
     c.execute('SELECT * FROM messages WHERE chat_id = ?', (chat_id,))
     messages = c.fetchall()
     conn.close()
@@ -222,8 +222,11 @@ def get_messages():
     for message in messages:
         try:
             decrypted_data = decrypt_with_aes(decrypted_aes_key, message['encrypted_content']).decode()
-            decrypted_messages.append(
-                {"sender": message['sender'], "chat_id": message['chat_id'], "message": decrypted_data})
+            decrypted_messages.append({
+                "sender": message['sender'],
+                "chat_id": message['chat_id'],
+                "message": decrypted_data
+            })
         except Exception as e:
             print("Error decrypting message:", e)
     return jsonify(decrypted_messages)
@@ -311,10 +314,9 @@ def get_chats():
         return jsonify({"error": "Unauthorized"}), 401
 
     username = session['username']
+    like_pattern = "%" + username + "%"
     conn = get_db_connection()
     c = conn.cursor()
-    # For LIKE queries, build the pattern and pass it as a parameter.
-    like_pattern = "%" + username + "%"
     c.execute('SELECT * FROM chats WHERE type = ? OR participants LIKE ?', ("global", like_pattern))
     chats = c.fetchall()
     conn.close()
@@ -328,13 +330,11 @@ def create_private_chat():
 
     data = request.json
     participant = data['participant']
-
     if not participant:
         return jsonify({"error": "Participant username is required"}), 400
 
     username = session['username']
     participants = sorted([username, participant])
-
     chat_name = f"Private chat between {participants[0]} and {participants[1]}"
     chat_id = str(uuid.uuid4())
 
@@ -354,16 +354,12 @@ def clear_chat():
 
     data = request.json
     chat_id = data['chat_id']
-
     if not chat_id:
         return jsonify({"error": "Chat ID is required"}), 400
 
     conn = get_db_connection()
     c = conn.cursor()
-
-    # Delete messages associated with the chat using a parameterized query.
     c.execute('DELETE FROM messages WHERE chat_id = ?', (chat_id,))
-    # Delete the chat entry.
     c.execute('DELETE FROM chats WHERE id = ?', (chat_id,))
     conn.commit()
     conn.close()
@@ -380,7 +376,6 @@ def create_event():
     description = data.get('description')
     event_date = data['event_date']
     creator = session['username']
-
     if not title or not event_date:
         return jsonify({"error": "Title and event date are required"}), 400
 
@@ -437,7 +432,6 @@ def handle_message(data):
     username = session['username']
     chat_id = data.get('chat_id')
     message_content = data.get('message')
-
     if not chat_id or not message_content:
         emit('message', {'error': 'Invalid data'}, room=request.sid)
         return
@@ -482,7 +476,6 @@ def add_user(username, password):
     conn.close()
 
 if __name__ == '__main__':
-    import os
-    # Use an environment variable to set debug mode (default is False)
+    # Use environment variable to control debug mode (default: False)
     debug_flag = os.environ.get('DEBUG', 'False') == 'True'
     socketio.run(app, debug=debug_flag)
