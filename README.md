@@ -1,6 +1,6 @@
 # Secure Chat Application
 
-This is a secure real-time chat application developed by **Dilnaz S.**, **Arlan M.**, and **Islam A.**. It utilizes Flask for the backend and React for the frontend, with real-time communication implemented via Flask-SocketIO and message encryption using AES.
+This is a secure real-time chat application developed by **Dilnaz S.**, and **Islam A.**. It utilizes Flask for the backend and React for the frontend, with real-time communication implemented via Flask-SocketIO and message encryption using AES.
 
 ## Table of Contents
 
@@ -157,5 +157,4 @@ The application uses SQLite for managing user credentials and chat messages.
 ## Contributors
 
 - **Dilnaz S.**
-- **Arlan M.**
 - **Islam A.**
